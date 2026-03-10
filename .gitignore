@@ -10,4 +10,3 @@ code/test/*
 !code/test/Makefile
 code/DISK_0
 .vscode/
-patch/
