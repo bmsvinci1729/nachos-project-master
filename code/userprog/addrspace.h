@@ -15,6 +15,7 @@
 
 #include "copyright.h"
 #include "filesys.h"
+#include "noff.h"
 
 #define UserStackSize 1024  // increase this as necessary!
 
@@ -36,6 +37,7 @@ class AddrSpace {
     // to physical address _paddr_. _mode_
     // is 0 for Read, 1 for Write.
     ExceptionType Translate(unsigned int vaddr, unsigned int *paddr, int mode);
+    void LoadPage(int vaddr);
     // void InitRegisters();
    private:
     TranslationEntry *pageTable;  // Assume linear page table translation
@@ -45,6 +47,8 @@ class AddrSpace {
 
     void InitRegisters();  // Initialize user-level CPU registers,
                            // before jumping to user code
+    NoffHeader noffHeader;
+    OpenFile *executable;
 };
 
 #endif  // ADDRSPACE_H

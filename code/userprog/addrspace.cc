@@ -76,6 +76,9 @@ AddrSpace::AddrSpace() {
 
     // // zero out the entire address space
     // bzero(kernel->machine->mainMemory, MemorySize);
+    executable = NULL;
+    pageTable = NULL;
+    numPages = 0;
 }
 
 //----------------------------------------------------------------------
@@ -85,9 +88,16 @@ AddrSpace::AddrSpace() {
 
 AddrSpace::~AddrSpace() {
     int i;
-    for (i = 0; i < numPages; i++) {
-        kernel->gPhysPageBitMap->Clear(pageTable[i].physicalPage);
+    if (pageTable == NULL) {
+        if (executable != NULL) delete executable;
+        return;
     }
+    for (i = 0; i < numPages; i++) {
+        if (pageTable[i].valid == TRUE) {
+            kernel->gPhysPageBitMap->Clear(pageTable[i].physicalPage);
+        }
+    }
+    if (executable != NULL) delete executable;
     delete[] pageTable;
 }
 
@@ -102,7 +112,7 @@ AddrSpace::~AddrSpace() {
 //----------------------------------------------------------------------
 
 AddrSpace::AddrSpace(char *fileName) {
-    OpenFile *executable = kernel->fileSystem->Open(fileName);
+    executable = kernel->fileSystem->Open(fileName);
     NoffHeader noffH;
     unsigned int i, size, j, offset;
     unsigned int numCodePage,
@@ -148,40 +158,68 @@ AddrSpace::AddrSpace(char *fileName) {
     pageTable = new TranslationEntry[numPages];
     for (i = 0; i < numPages; i++) {
         pageTable[i].virtualPage = i;  // for now, virtual page # = phys page #
-        pageTable[i].physicalPage = kernel->gPhysPageBitMap->FindAndSet();
+        pageTable[i].physicalPage = -1;
         // cerr << pageTable[i].physicalPage << endl;
-        pageTable[i].valid = TRUE;
+        pageTable[i].valid = FALSE;
         pageTable[i].use = FALSE;
         pageTable[i].dirty = FALSE;
         pageTable[i].readOnly = FALSE;  // if the code segment was entirely on
         // a separate page, we could set its
         // pages to be read-only
         // xóa các trang này trên memory
-        bzero(&(kernel->machine
-                    ->mainMemory[pageTable[i].physicalPage * PageSize]),
-              PageSize);
         DEBUG(dbgAddr, "phyPage " << pageTable[i].physicalPage);
     }
 
-    if (noffH.code.size > 0) {
-        for (i = 0; i < numPages; i++)
-            executable->ReadAt(
-                &(kernel->machine->mainMemory[noffH.code.virtualAddr]) +
-                    (pageTable[i].physicalPage * PageSize),
-                PageSize, noffH.code.inFileAddr + (i * PageSize));
-    }
-
-    if (noffH.initData.size > 0) {
-        for (i = 0; i < numPages; i++)
-            executable->ReadAt(
-                &(kernel->machine->mainMemory[noffH.initData.virtualAddr]) +
-                    (pageTable[i].physicalPage * PageSize),
-                PageSize, noffH.initData.inFileAddr + (i * PageSize));
-    }
+    noffHeader = noffH;
 
     kernel->addrLock->V();
-    delete executable;
     return;
+}
+
+void AddrSpace::LoadPage(int vaddr) {
+    int vpn = vaddr / PageSize;
+    if (vpn < 0 || (unsigned int)vpn >= numPages) return;
+    if (pageTable[vpn].valid == TRUE) return;
+
+    int ppn = kernel->gPhysPageBitMap->FindAndSet();
+    ASSERT(ppn >= 0);
+
+    pageTable[vpn].physicalPage = ppn;
+    bzero(&(kernel->machine->mainMemory[ppn * PageSize]), PageSize);
+
+    int pageStartVAddr = vpn * PageSize;
+    int pageEndVAddr = pageStartVAddr + PageSize;
+
+    if (noffHeader.code.size > 0) {
+        int codeStart = noffHeader.code.virtualAddr;
+        int codeEnd = codeStart + noffHeader.code.size;
+        int readStart = (pageStartVAddr > codeStart) ? pageStartVAddr : codeStart;
+        int readEnd = (pageEndVAddr < codeEnd) ? pageEndVAddr : codeEnd;
+        if (readStart < readEnd) {
+            int bytesToRead = readEnd - readStart;
+            int inFileOffset = noffHeader.code.inFileAddr + (readStart - codeStart);
+            int memOffset = ppn * PageSize + (readStart - pageStartVAddr);
+            executable->ReadAt(&(kernel->machine->mainMemory[memOffset]), bytesToRead,
+                               inFileOffset);
+        }
+    }
+
+    if (noffHeader.initData.size > 0) {
+        int dataStart = noffHeader.initData.virtualAddr;
+        int dataEnd = dataStart + noffHeader.initData.size;
+        int readStart = (pageStartVAddr > dataStart) ? pageStartVAddr : dataStart;
+        int readEnd = (pageEndVAddr < dataEnd) ? pageEndVAddr : dataEnd;
+        if (readStart < readEnd) {
+            int bytesToRead = readEnd - readStart;
+            int inFileOffset =
+                noffHeader.initData.inFileAddr + (readStart - dataStart);
+            int memOffset = ppn * PageSize + (readStart - pageStartVAddr);
+            executable->ReadAt(&(kernel->machine->mainMemory[memOffset]), bytesToRead,
+                               inFileOffset);
+        }
+    }
+
+    pageTable[vpn].valid = TRUE;
 }
 
 //----------------------------------------------------------------------
