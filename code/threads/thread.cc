@@ -46,6 +46,21 @@ Thread::Thread(char *threadName, bool _has_dynamic_name /*=false*/) {
                                  // of machine registers
     }
     space = NULL;
+    pipeDesNum = -1;
+}
+
+Thread::Thread(char *threadName, int pDes, bool _has_dynamic_name /*=false*/) {
+    has_dynamic_name = _has_dynamic_name;
+    name = threadName;
+    stackTop = NULL;
+    stack = NULL;
+    status = JUST_CREATED;
+    priority = random() % 10000;
+    for (int i = 0; i < MachineStateSize; i++) {
+        machineState[i] = NULL;
+    }
+    space = NULL;
+    pipeDesNum = pDes;
 }
 
 //----------------------------------------------------------------------

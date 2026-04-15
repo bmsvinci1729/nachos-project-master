@@ -17,6 +17,7 @@
 #include "stats.h"
 #include "alarm.h"
 #include "filesys.h"
+#include "pipe.h"
 #include "machine.h"
 
 class PostOfficeInput;
@@ -59,6 +60,7 @@ class Kernel {
     SynchConsoleOutput *synchConsoleOut;
     SynchDisk *synchDisk;
     FileSystem *fileSystem;
+    PipeDescriptors *pipeDes;
     PostOfficeInput *postOfficeIn;
     PostOfficeOutput *postOfficeOut;
 

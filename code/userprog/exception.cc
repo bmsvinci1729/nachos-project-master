@@ -25,6 +25,7 @@
 #include "main.h"
 #include "syscall.h"
 #include "ksyscall.h"
+#include <cstring>
 //----------------------------------------------------------------------
 // ExceptionHandler
 // 	Entry point into the Nachos kernel.  Called when a user program
@@ -321,6 +322,81 @@ void handle_SC_Exec() {
     return move_program_counter();
 }
 
+void handle_SC_ExecP() {
+    int virtAddr = kernel->machine->ReadRegister(4);
+    char* name = stringUser2System(virtAddr);
+    if (name == NULL) {
+        DEBUG(dbgSys, "\n Not enough memory in System");
+        ASSERT(false);
+        kernel->machine->WriteRegister(2, -1);
+        return move_program_counter();
+    }
+    int pDes = kernel->machine->ReadRegister(5);
+    kernel->machine->WriteRegister(2, SysExecP(name, pDes));
+    return move_program_counter();
+}
+
+void handle_SC_Pipe() {
+    int firstPtr = kernel->machine->ReadRegister(4);
+    int secondPtr = kernel->machine->ReadRegister(5);
+    int* parentPtr = (int*)stringUser2System(firstPtr, 4);
+    int* childPtr = (int*)stringUser2System(secondPtr, 4);
+
+    kernel->machine->WriteRegister(2, SysPipe(parentPtr, childPtr));
+    StringSys2User((char*)parentPtr, firstPtr, 4);
+    StringSys2User((char*)childPtr, secondPtr, 4);
+    delete[] (char*)parentPtr;
+    delete[] (char*)childPtr;
+    return move_program_counter();
+}
+
+void handle_SC_PipeRead() {
+    int desNum = kernel->machine->ReadRegister(4);
+    int bufAddr = kernel->machine->ReadRegister(5);
+    int nBytes = kernel->machine->ReadRegister(6);
+    if (nBytes <= 0) {
+        kernel->machine->WriteRegister(2, -1);
+        return move_program_counter();
+    }
+
+    char* buf = new char[nBytes];
+    int readRes = SysPipeRead(desNum, buf, nBytes);
+    if (readRes >= 0) StringSys2User(buf, bufAddr, nBytes);
+    kernel->machine->WriteRegister(2, readRes);
+    delete[] buf;
+    return move_program_counter();
+}
+
+void handle_SC_PipeWrite() {
+    int desNum = kernel->machine->ReadRegister(4);
+    int bufAddr = kernel->machine->ReadRegister(5);
+    int nBytes = kernel->machine->ReadRegister(6);
+    if (nBytes <= 0) {
+        kernel->machine->WriteRegister(2, -1);
+        return move_program_counter();
+    }
+
+    char* buf = new char[nBytes];
+    for (int i = 0; i < nBytes; i++) {
+        int byte = 0;
+        kernel->machine->ReadMem(bufAddr + i, 1, &byte);
+        buf[i] = (char)byte;
+    }
+    int writeRes = SysPipeWrite(desNum, buf, nBytes);
+    kernel->machine->WriteRegister(2, writeRes);
+    delete[] buf;
+    return move_program_counter();
+}
+
+void handle_SC_ReadInt() {
+    int virtAddr = kernel->machine->ReadRegister(4);
+    char* buf = stringUser2System(virtAddr, 4);
+    int value = SysReadInt(buf);
+    kernel->machine->WriteRegister(2, value);
+    delete[] buf;
+    return move_program_counter();
+}
+
 /**
  * @brief handle System Call Join
  * @param id: thread id (get from R4)
@@ -403,6 +479,11 @@ void handle_SC_GetPid() {
     return move_program_counter();
 }
 
+void handle_SC_GetPD() {
+    kernel->machine->WriteRegister(2, (int)SysGetPD());
+    return move_program_counter();
+}
+
 void handle_SC_Sleep() {
     int time = kernel->machine->ReadRegister(4);
     SysSleep(time);
@@ -420,7 +501,17 @@ void ExceptionHandler(ExceptionType which) {
             kernel->interrupt->setStatus(SystemMode);
             DEBUG(dbgSys, "Switch to system mode\n");
             break;
-        case PageFaultException:
+        case PageFaultException: {
+            int faultingAddr = kernel->machine->ReadRegister(BadVAddrReg);
+            if (kernel->currentThread == NULL || kernel->currentThread->space == NULL) {
+                cerr << "Page fault without current address space\n";
+                SysHalt();
+                ASSERTNOTREACHED();
+            }
+            kernel->currentThread->space->LoadPage(faultingAddr);
+            kernel->currentThread->space->RestoreState();
+            return;
+        }
         case ReadOnlyException:
         case BusErrorException:
         case AddressErrorException:
@@ -467,6 +558,8 @@ void ExceptionHandler(ExceptionType which) {
                     return handle_SC_Seek();
                 case SC_Exec:
                     return handle_SC_Exec();
+                case SC_ExecP:
+                    return handle_SC_ExecP();
                 case SC_Join:
                     return handle_SC_Join();
                 case SC_Exit:
@@ -479,6 +572,16 @@ void ExceptionHandler(ExceptionType which) {
                     return handle_SC_Signal();
                 case SC_GetPid:
                     return handle_SC_GetPid();
+                case SC_Pipe:
+                    return handle_SC_Pipe();
+                case SC_PipeRead:
+                    return handle_SC_PipeRead();
+                case SC_PipeWrite:
+                    return handle_SC_PipeWrite();
+                case SC_ReadInt:
+                    return handle_SC_ReadInt();
+                case SC_GetPD:
+                    return handle_SC_GetPD();
                 /**
                  * Handle all not implemented syscalls
                  * If you want to write a new handler for syscall:

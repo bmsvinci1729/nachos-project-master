@@ -82,6 +82,14 @@ Exec:
 	j	$31
 	.end Exec
 
+	.globl ExecP
+	.ent	ExecP
+ExecP:
+	addiu $2,$0,SC_ExecP
+	syscall
+	j	$31
+	.end ExecP
+
 	.globl ExecV
 	.ent	ExecV
 ExecV:
@@ -289,6 +297,46 @@ GetPid:
 	syscall
 	j	$31
 	.end GetPid
+
+	.globl Pipe
+	.ent	Pipe
+Pipe:
+	addiu $2,$0,SC_Pipe
+	syscall
+	j	$31
+	.end Pipe
+
+	.globl pipeRead
+	.ent	pipeRead
+pipeRead:
+	addiu $2,$0,SC_PipeRead
+	syscall
+	j	$31
+	.end pipeRead
+
+	.globl pipeWrite
+	.ent	pipeWrite
+pipeWrite:
+	addiu $2,$0,SC_PipeWrite
+	syscall
+	j	$31
+	.end pipeWrite
+
+	.globl ReadInt
+	.ent	ReadInt
+ReadInt:
+	addiu $2,$0,SC_ReadInt
+	syscall
+	j	$31
+	.end ReadInt
+
+	.globl GetPD
+	.ent	GetPD
+GetPD:
+	addiu $2,$0,SC_GetPD
+	syscall
+	j	$31
+	.end GetPD
 
 /* dummy function to keep gcc happy */
         .globl  __main

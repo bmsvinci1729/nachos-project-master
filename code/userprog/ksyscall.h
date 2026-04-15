@@ -15,6 +15,7 @@
 #include "synchconsole.h"
 #include "ksyscallhelper.h"
 #include <stdlib.h>
+#include <cstring>
 
 void SysHalt() { kernel->interrupt->Halt(); }
 
@@ -217,6 +218,33 @@ int SysExec(char* name) {
     return kernel->pTab->ExecUpdate(name);
 }
 
+int SysExecP(char* name, int pDes) {
+    OpenFile* oFile = kernel->fileSystem->Open(name);
+    if (oFile == NULL) {
+        DEBUG(dbgSys, "\nExec:: Can't open this file.");
+        return -1;
+    }
+    delete oFile;
+    return kernel->pTab->ExecUpdate(name, pDes);
+}
+
+int SysPipe(int* x, int* y) { return kernel->pipeDes->createDes(x, y, (char*)"pipe"); }
+
+int SysPipeRead(int des, char* buf, int nBytes) {
+    return kernel->pipeDes->readDes(des, buf, nBytes);
+}
+
+int SysPipeWrite(int des, char* buf, int nBytes) {
+    return kernel->pipeDes->writeDes(des, buf, nBytes);
+}
+
+int SysReadInt(char* buf) {
+    if (buf == NULL) return 0;
+    int value = 0;
+    memcpy(&value, buf, sizeof(int));
+    return value;
+}
+
 int SysJoin(int id) { return kernel->pTab->JoinUpdate(id); }
 
 int SysExit(int id) { return kernel->pTab->ExitUpdate(id); }
@@ -258,5 +286,7 @@ int SysSignal(char* name) {
 }
 
 int SysGetPid() { return kernel->currentThread->processID; }
+
+int SysGetPD() { return kernel->currentThread->pipeDesNum; }
 
 #endif /* ! __USERPROG_KSYSCALL_H__ */

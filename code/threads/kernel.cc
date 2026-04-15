@@ -104,6 +104,7 @@ void Kernel::Initialize(char *userProgName /*=NULL*/) {
 #else
     fileSystem = new FileSystem(formatFlag);
 #endif  // FILESYS_STUB
+    pipeDes = new PipeDescriptors();
     postOfficeIn = new PostOfficeInput(10);
     postOfficeOut = new PostOfficeOutput(reliability);
 
@@ -130,6 +131,7 @@ Kernel::~Kernel() {
     delete synchConsoleOut;
     delete synchDisk;
     delete fileSystem;
+    delete pipeDes;
     delete postOfficeIn;
     delete postOfficeOut;
     delete pTab;

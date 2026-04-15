@@ -50,6 +50,12 @@
 #define SC_GetPid 54
 #define SC_Abs 55
 #define SC_Sleep 57
+#define SC_Pipe 58
+#define SC_PipeRead 59
+#define SC_PipeWrite 60
+#define SC_ExecP 61
+#define SC_ReadInt 62
+#define SC_GetPD 63
 
 #ifndef IN_ASM
 
@@ -101,6 +107,7 @@ typedef int ThreadId;
 /* This can be implemented as a call to ExecV.
  */
 SpaceId Exec(char *exec_name);
+SpaceId ExecP(char *exec_name, int pDes);
 
 /* Run the executable, stored in the Nachos file "argv[0]", with
  * parameters stored in argv[1..argc-1] and return the
@@ -183,6 +190,12 @@ int CreateSemaphore(char *name, int semval);
 int Wait(char *name);
 
 int Signal(char *name);
+
+void Pipe(int *x, int *y);
+int pipeRead(int des, char *buf, int nBytes);
+int pipeWrite(int des, char *buf, int nBytes);
+int GetPD();
+int ReadInt(char *buf);
 
 /* User-level thread operations: Fork and Yield.  To allow multiple
  * threads to run within a user program.
