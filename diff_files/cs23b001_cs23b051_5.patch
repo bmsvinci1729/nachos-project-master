@@ -1,0 +1,1028 @@
+diff --git a/nachos-project-master/code/machine/interrupt.cc b/nachos-project-master/code/machine/interrupt.cc
+index 595d8cf..9d6ecb1 100755
+--- a/nachos-project-master/code/machine/interrupt.cc
++++ b/nachos-project-master/code/machine/interrupt.cc
+@@ -158,11 +158,11 @@ void Interrupt::OneTick() {
+                                  // (interrupt handlers run with
+                                  // interrupts disabled)
+     CheckIfDue(FALSE);           // check for pending interrupts
+-    bool someThreadWoken = kernel->scheduler->checkBlockedList(kernel->stats->totalTicks, false);                                                                         if(someThreadWoken) {                                                                      cout << "Yes !! Found a thread woken when running:" <<kernel->currentThread->getName()<< endl;
++    /*bool someThreadWoken = kernel->scheduler->checkBlockedList(kernel->stats->totalTicks, false);                                                                         if(someThreadWoken) {                                                                      cout << "Yes !! Found a thread woken when running:" <<kernel->currentThread->getName()<< endl;
+             status = SystemMode;
+             kernel->currentThread->Yield();
+             status = oldStatus;
+-    }
++    }*/
+     ChangeLevel(IntOff, IntOn);  // re-enable interrupts
+     if (yieldOnReturn) {         // if the timer device handler asked
+                                  // for a context switch, ok to do it now
+diff --git a/nachos-project-master/code/test/Makefile b/nachos-project-master/code/test/Makefile
+index 84286b7..21fa1f2 100755
+--- a/nachos-project-master/code/test/Makefile
++++ b/nachos-project-master/code/test/Makefile
+@@ -113,7 +113,7 @@ ifeq ($(hosttype),unknown)
+ PROGRAMS = unknownhost
+ else
+ # change this if you create a new test program!
+-PROGRAMS = Sleep2Test test1 left right Child1 Child abs add halt shell matmult sort segments test_syscall num_io char_io random str_io ascii bubblesort help create_file open_file readwrite exec test_sem sinhvien voinuoc main
++PROGRAMS = demand_page_test pipe Sleep2Test test1 left right Child1 Child abs add halt shell matmult sort segments test_syscall num_io char_io random str_io ascii bubblesort help create_file open_file readwrite exec test_sem sinhvien voinuoc main
+ endif
+ 
+ all: $(PROGRAMS)
+@@ -121,12 +121,25 @@ all: $(PROGRAMS)
+ start.o: start.S ../userprog/syscall.h
+ 	$(CC) $(CFLAGS) $(ASFLAGS) -c start.S
+ 
++demand_page_test.o: demand_page_test.c
++	$(CC) $(CFLAGS) -c demand_page_test.c
++
++demand_page_test: demand_page_test.o start.o
++	$(LD) $(LDFLAGS) start.o demand_page_test.o -o demand_page_test.coff
++	$(COFF2NOFF) demand_page_test.coff demand_page_test
++
+ halt.o: halt.c
+ 	$(CC) $(CFLAGS) -c halt.c
+ halt: halt.o start.o
+ 	$(LD) $(LDFLAGS) start.o halt.o -o halt.coff
+ 	$(COFF2NOFF) halt.coff halt
+ 
++pipe.o: pipe.c
++	$(CC) $(CFLAGS) -c pipe.c
++pipe: pipe.o start.o
++	$(LD) $(LDFLAGS) start.o pipe.o -o pipe.coff
++	$(COFF2NOFF) pipe.coff pipe
++
+ Sleep2Test.o: Sleep2Test.c
+ 	$(CC) $(CFLAGS) -c Sleep2Test.c
+ 
+diff --git a/nachos-project-master/code/test/abs.c b/nachos-project-master/code/test/abs.c
+index 259025e..de24c7b 100644
+--- a/nachos-project-master/code/test/abs.c
++++ b/nachos-project-master/code/test/abs.c
+@@ -2,15 +2,22 @@
+ 
+ int main()
+ {
+-	int x;
+-	int result;
+-	PrintString("Taking input for Abs:\n");
+-	x = ReadNum();
+-	PrintString("Read the number:");
+-	PrintNum(x);
+-	result = Abs(x);
+-	PrintString("=== Result of Abs ===:");
++	int x,rRes,result;
++	int readVal;
++	char* buf;
++	int pd;
++	pd = GetPD();
++	PrintString("Found the pd from the thread program to be:");
++	PrintNum(pd);
++	PrintString("\n");
++	rRes = pipeRead(pd, buf, 4);
++	PrintString("Printing Read value:");
++	//PrintString(buf);
++	readVal = ReadInt(buf);
++	PrintNum(readVal);
++	PrintString("\n");
++	result = Abs(readVal);
++	PrintString("Final Result after reading from Abs:");
+ 	PrintNum(result);
+ 	PrintString("\n");
+-	return 0;
+ }
+diff --git a/nachos-project-master/code/test/add.c b/nachos-project-master/code/test/add.c
+index cfc06a1..089891f 100755
+--- a/nachos-project-master/code/test/add.c
++++ b/nachos-project-master/code/test/add.c
+@@ -1,18 +1,16 @@
+-/* add.c
+- *	Simple program to test whether the systemcall interface works.
+- *
+- *	Just do a add syscall that adds two values and returns the result.
+- *
+- */
+-
+ #include "syscall.h"
+ 
+-int main() {
+-    int result;
+-
+-    result = Add(-42, 23);
+-    PrintNum(result);
+-
+-    //Halt();
+-    /* not reached */
++int main()
++{
++	int x, y, result, wRes, pid;
++	char* buf = "Hello";
++	Pipe(&x, &y);
++	result = Add(-11, 1);
++	wRes = pipeWrite(x, (char*)&result, 4);
++	pid = ExecP("../test/abs", y);
++	if(pid < 0){
++		PrintString("Exec failed\n");
++	}
++	Join(pid);
++//	return 0;
+ }
+diff --git a/nachos-project-master/code/test/demand_page_test.c b/nachos-project-master/code/test/demand_page_test.c
+new file mode 100644
+index 0000000..180fb65
+--- /dev/null
++++ b/nachos-project-master/code/test/demand_page_test.c
+@@ -0,0 +1,17 @@
++#include "syscall.h"
++
++int a[10] = {1,1,1,1,1,1,1,1,1,1};
++int x = 19;
++
++int main(){
++	int i;
++	PrintString("Printing array\n");
++	for(i = 0; i < 10; i++){
++		PrintNum(a[i]);
++		PrintString(" ");
++	}
++	PrintString("Done with loop, x:\n");
++	PrintNum(x);
++	PrintString("\n");
++	Halt();
++}
+diff --git a/nachos-project-master/code/test/pipe.c b/nachos-project-master/code/test/pipe.c
+new file mode 100644
+index 0000000..ae372ff
+--- /dev/null
++++ b/nachos-project-master/code/test/pipe.c
+@@ -0,0 +1,12 @@
++#include "syscall.h"
++
++
++int main()
++{
++	int x,y;
++	Pipe(&x, &y);
++	PrintNum(x);
++	PrintString("\n");
++	PrintNum(y);
++	PrintString("Done\n");
++}
+diff --git a/nachos-project-master/code/threads/kernel.cc b/nachos-project-master/code/threads/kernel.cc
+index 7136b45..28521bf 100755
+--- a/nachos-project-master/code/threads/kernel.cc
++++ b/nachos-project-master/code/threads/kernel.cc
+@@ -101,6 +101,7 @@ void Kernel::Initialize(char *userProgName /*=NULL*/) {
+     synchDisk = new SynchDisk();                           //
+ #ifdef FILESYS_STUB
+     fileSystem = new FileSystem();
++    pipeDes = new PipeDescriptors();
+ #else
+     fileSystem = new FileSystem(formatFlag);
+ #endif  // FILESYS_STUB
+diff --git a/nachos-project-master/code/threads/kernel.h b/nachos-project-master/code/threads/kernel.h
+index 7e5e030..faf5082 100755
+--- a/nachos-project-master/code/threads/kernel.h
++++ b/nachos-project-master/code/threads/kernel.h
+@@ -17,6 +17,7 @@
+ #include "stats.h"
+ #include "alarm.h"
+ #include "filesys.h"
++#include "pipe.h"
+ #include "machine.h"
+ 
+ class PostOfficeInput;
+@@ -59,6 +60,7 @@ class Kernel {
+     SynchConsoleOutput *synchConsoleOut;
+     SynchDisk *synchDisk;
+     FileSystem *fileSystem;
++    PipeDescriptors* pipeDes;	// Variable holding the instance of pipe descriptor pool
+     PostOfficeInput *postOfficeIn;
+     PostOfficeOutput *postOfficeOut;
+ 
+diff --git a/nachos-project-master/code/threads/pcb.cc b/nachos-project-master/code/threads/pcb.cc
+index 620ca90..12e7a4c 100755
+--- a/nachos-project-master/code/threads/pcb.cc
++++ b/nachos-project-master/code/threads/pcb.cc
+@@ -77,6 +77,37 @@ int PCB::Exec(char* filename, int id, char* pos, char* fileName) {
+     return id;
+ }
+ 
++// Overloaded version of function - Exec with descriptor as a parameter
++
++int PCB::Exec(char* filename, int id, int pDes) {
++    // cerr << filename << ' ' << pid << endl;
++    multex->P();
++    //cout<<"Got the position in Exec(pcb.cc) as:"<<pos<<endl;
++    //cout<<"Going to create a new thread from pcb.cc"<<endl;
++    this->thread = new Thread(filename, true, pDes);
++    if (this->thread == NULL) {
++        printf("\nPCB::Exec: Not enough memory!\n");
++        multex->V();  // Nha CPU de nhuong CPU cho tien trinh khac
++        return -1;    // Tra ve -1 neu that bai
++    }
++
++    //  Đặt processID của thread này là id.
++    this->thread->processID = id;
++    // Đặt parrentID của thread này là processID của thread gọi thực thi Exec
++    this->parentID = kernel->currentThread->processID;
++    // Gọi thực thi Fork(StartProcess_2,id) => Ta cast thread thành kiểu int,
++    // sau đó khi xử ký hàm StartProcess ta cast Thread về đúng kiểu của nó.
++
++    // Không được sử dụng biến id ở đây, vì biến id là biến cục bộ,
++    // nên khi hàm này kết thúc thì giá trị của biến này cũng bị xóa
++    // Đừng hỏi tôi đã mất bao lâu để nhận ra điều này :)
++    this->thread->Fork(StartProcess_2, &this->thread->processID);
++
++    multex->V();
++    // Trả về id.
++    return id;
++}
++
+ int PCB::GetID() { return thread->processID; }
+ 
+ int PCB::GetNumWait() { return numwait; }
+diff --git a/nachos-project-master/code/threads/pcb.h b/nachos-project-master/code/threads/pcb.h
+index 6435455..a605e3a 100755
+--- a/nachos-project-master/code/threads/pcb.h
++++ b/nachos-project-master/code/threads/pcb.h
+@@ -21,6 +21,8 @@ class PCB {
+     ~PCB();
+ 
+     int Exec(char *filename, int pid, char* pos = "Single", char* fileName = "temp");
++    // Overloading the already defined Exec function
++    int Exec(char* filename, int pid, int pDes);
+     int GetID();
+     int GetNumWait();
+ 
+diff --git a/nachos-project-master/code/threads/pipe.cc b/nachos-project-master/code/threads/pipe.cc
+new file mode 100644
+index 0000000..552d039
+--- /dev/null
++++ b/nachos-project-master/code/threads/pipe.cc
+@@ -0,0 +1,120 @@
++#include "pipe.h"
++#include<iostream>
++#include<cstring>
++#include "debug.h"
++using namespace std;
++
++//Descriptor* descriptors[MAX_NUM_DESCRIPTORS] = {NULL};	// Intialising with null pointers to avoid any accidental garbage pointers.
++
++
++Descriptor::Descriptor(char* desType, char* permission, char* bufPtr){
++	buf = bufPtr;	// Allocating a char array initially to a NULL pointer
++	
++	this->desType = desType;
++	this->permission = permission;
++	this->currSeekPos = 0;
++}
++
++Descriptor::~Descriptor(){
++	delete [] buf;
++}
++
++void PipeDescriptors::test_method(){
++	std::cout<<"Imports via header files are working!!\n";
++}
++
++PipeDescriptors::PipeDescriptors(){
++	Descriptor* descriptors[MAX_NUM_DESCRIPTORS] = {nullptr};	// Intialising with null pointers to avoid any accidental garbage pointers.
++}
++
++int PipeDescriptors::createDes(int* x, int* y, char* desType){
++	char* buf = new char[BUFFER_SIZE];
++	int parentPd = -1, childPd = -1; 	// Variables holding the pipe descriptors
++	
++	// Count the number of free Descriptors available
++	int freeDes_cnt = 0;
++	for(int i = 0; i < MAX_NUM_DESCRIPTORS; i++){
++		if(descriptors[i] == nullptr){
++			freeDes_cnt++;
++		}
++	}
++
++	// If they are less than 2 then return the error code -1 indicating the failure to assign the descriptors
++	if(freeDes_cnt < 2){
++		return -1;
++	}
++	// Create two new descriptors - one for parent process and one for child process but pass the same buffer pointer to both the descriptor objects
++	Descriptor* parentDes = new Descriptor(desType, "w", buf);
++	Descriptor* childDes = new Descriptor(desType, "r", buf);
++
++	// Scan through the entire array of descriptors and assign the descriptor that is not yet assigned to any of the processes (i.e., it has NULL)
++	for(int i = 0; i < MAX_NUM_DESCRIPTORS; i++){
++		if(descriptors[i] == nullptr){
++			parentPd = i;
++			break;
++		}
++	}
++	descriptors[parentPd] = parentDes;
++	
++	// Scan through the entire array of descriptors and find that descriptor number that is not assigned to any of the processes (i.e., it has NULL)
++	for(int i = 0; i < MAX_NUM_DESCRIPTORS; i++){
++		if(descriptors[i] == nullptr){
++			childPd = i;
++			break;
++		}
++	}
++	descriptors[childPd] = childDes;
++
++	// Assign the parent and child pipe descriptors - the return values of the function using the technique of pass by address
++	*x = parentPd;
++	*y = childPd;
++	return 1;	// Return 1 as the success code indicating the success of the creation of two pipe descriptors one for parent and one for child
++}
++
++
++int PipeDescriptors::readDes(int des, char* buf, int numBytes){
++	if(des < 0 || des >= MAX_NUM_DESCRIPTORS){
++		cout<<"No pipe descriptor exists for the given index:"<<des<<endl;
++	}
++	int numRead = 0;
++	Descriptor* pDes = descriptors[des];
++	char* pipeBuf = pDes->buf;
++	for(int i = 0; i < numBytes; i++){
++		/*if(buf[i] == '\0'){
++			break;
++		}*/
++		buf[i] =  pipeBuf[i];
++		numRead++;
++	}
++	if(numRead != numBytes){
++		cout<<"Asked for :"<<numBytes<<" but read:"<<numRead<<endl;
++	}
++	ASSERT(numRead == numBytes);
++	return numRead;
++}
++
++int PipeDescriptors::writeDes(int des, char* buf, int numBytes){
++	if(des < 0 || des >= MAX_NUM_DESCRIPTORS){
++		cout<<"No pipe descriptor exists for the given index:"<<des<<endl;
++	}
++	Descriptor* pDes = descriptors[des];
++	int permCheck = strcmp(pDes->permission, "w");
++	// Throw an error when the permission for the current pipe descriptor we are accessing.
++	ASSERT(permCheck == 0);
++	int numWrite = 0;
++	//cout<<"Attempting to write:"<<buf<<endl;
++	for(int i = 0; i < numBytes; i++){
++		/*if(buf[i] == '\0'){
++			break;
++		}*/
++		pDes->buf[i+pDes->currSeekPos] = buf[i];
++		numWrite++;
++	}
++	pDes->currSeekPos += numWrite;
++	if(numWrite != numBytes){
++		cout<<"Requested for writing :"<<numBytes<<" but wrote :"<<numWrite<<endl;
++	}
++	ASSERT(numWrite == numBytes);
++	//cout<<"Successfully written :"<<buf<<endl;
++	return numWrite;
++}
+diff --git a/nachos-project-master/code/threads/pipe.h b/nachos-project-master/code/threads/pipe.h
+new file mode 100644
+index 0000000..5f9df30
+--- /dev/null
++++ b/nachos-project-master/code/threads/pipe.h
+@@ -0,0 +1,36 @@
++#ifndef PIPE_H
++#define PIPE_H
++
++#define BUFFER_SIZE 2048 	// Defining the size of the buffer to be 2048 bytes
++#define MAX_NUM_DESCRIPTORS 64	// Defining the number of descriptors to be 64 (i.e., the descriptors can range from 0 to 63
++
++class Descriptor{
++	public:
++		char* buf;
++		char* desType;		// A string storing the type of the descriptor(pipe descriptor of file descriptor)
++		char* permission;	// A string (mostly a single letter indicating the permission of the owner of this specific descriptor (Read or Write)
++		int currSeekPos;	// An int value for storing the current position of the seek
++		Descriptor(char* desType, char* permission, char* bufPtr);	// Defining the constructor
++		~Descriptor();		// Declaring the destructor
++};
++
++class PipeDescriptors{
++	public:
++		PipeDescriptors();
++		// Defining the number of array of descriptors
++		Descriptor* descriptors[MAX_NUM_DESCRIPTORS];
++
++		// create function that accepts two parameters passed by reference to populate with the numbers (indices) of the descriptors. Also type of the descriptor required is also passed
++		int createDes(int* x, int* y, char* desType);
++
++		// readDes function that accepts the descriptor number from the thread and the number of bytes to be read. Then perform the act of reading the content from the descriptor and returning it
++		int readDes(int des, char* buf, int numBytes);
++
++		// writeDes function that accepts the descriptor number from the thread and the number of bytes to be written to the buffer. Here we check for the permission assigned for the descriptor before performing the action of writing to the buffer.
++		int writeDes(int des, char* buf, int numBytes);
++
++		// A test method
++		void test_method();
++};
++
++#endif
+diff --git a/nachos-project-master/code/threads/ptable.cc b/nachos-project-master/code/threads/ptable.cc
+index f9e85df..c02db9a 100755
+--- a/nachos-project-master/code/threads/ptable.cc
++++ b/nachos-project-master/code/threads/ptable.cc
+@@ -70,6 +70,57 @@ int PTable::ExecUpdate(char* name, char* pos, char* fileName) {
+     return pid;
+ }
+ 
++
++int PTable::ExecUpdate(char* name, int pDes) {
++    // Gọi mutex->P(); để giúp tránh tình trạng nạp 2 tiến trình cùng 1 lúc.
++    bmsem->P();
++
++    // Kiểm tra tính hợp lệ của chương trình “name”.
++    // Kiểm tra sự tồn tại của chương trình “name” bằng cách gọi phương thức
++    // Open của lớp fileSystem.
++    if (name == NULL) {
++        DEBUG(dbgSys, "\nPTable::Exec : Can't not execute name is NULL.\n");
++        bmsem->V();
++        return -1;
++    }
++    // So sánh tên chương trình và tên của currentThread để chắc chắn rằng
++    // chương trình này không gọi thực thi chính nó.
++    if (strcmp(name, kernel->currentThread->getName()) == 0) {
++        DEBUG(dbgSys, "\nPTable::Exec : Can't not execute itself.\n");
++        bmsem->V();
++        return -1;
++    }
++
++    // Tìm slot trống trong bảng Ptable.
++    int index = this->GetFreeSlot();
++
++    // Check if have free slot
++    if (index < 0) {
++        DEBUG(dbgSys, "\nPTable::Exec :There is no free slot.\n");
++        bmsem->V();
++        return -1;
++    }
++
++    // Nếu có slot trống thì khởi tạo một PCB mới với processID chính là index
++    // của slot này
++    pcb[index] = new PCB(index);
++    pcb[index]->SetFileName(name);
++    kernel->fileSystem->Renew(index);
++
++    // parrentID là processID của currentThread
++    pcb[index]->parentID = kernel->currentThread->processID;
++
++    // Gọi thực thi phương thức Exec của lớp PCB.
++//    cout<<"Got position in ExecUpdate(ptable.cc) as:"<<pos<<endl;
++    cout<<"Successfully passed ExecUpdate in ptable.cc"<<endl;
++    int pid = pcb[index]->Exec(name, index, pDes);
++
++    // Gọi bmsem->V()
++    bmsem->V();
++    // Trả về kết quả thực thi của PCB->Exec.
++    return pid;
++}
++
+ int PTable::ExitUpdate(int exitcode) {
+     // Nếu tiến trình gọi là main process thì gọi Halt().
+     int id = kernel->currentThread->processID;
+diff --git a/nachos-project-master/code/threads/ptable.h b/nachos-project-master/code/threads/ptable.h
+index 2a347c3..b655555 100755
+--- a/nachos-project-master/code/threads/ptable.h
++++ b/nachos-project-master/code/threads/ptable.h
+@@ -17,6 +17,8 @@ class PTable {
+     PTable(int size);
+     ~PTable();
+     int ExecUpdate(char* name, char* pos = "single", char* fileName = "temp");
++    // Overloading already declared ExecUpdate to accept descriptor value
++    int ExecUpdate(char* name, int pDes);
+     int ExitUpdate(int ec);
+     int JoinUpdate(int id);
+     int GetFreeSlot();
+diff --git a/nachos-project-master/code/threads/test b/nachos-project-master/code/threads/test
+new file mode 100755
+index 0000000..9428f38
+Binary files /dev/null and b/nachos-project-master/code/threads/test differ
+diff --git a/nachos-project-master/code/threads/thread.cc b/nachos-project-master/code/threads/thread.cc
+index 60a24f5..3d94da8 100755
+--- a/nachos-project-master/code/threads/thread.cc
++++ b/nachos-project-master/code/threads/thread.cc
+@@ -79,6 +79,26 @@ Thread::Thread(char *threadName, bool _has_dynamic_name /*=false*/, char* positi
+     }
+ }
+ 
++// Defining the constructor of overloaded version to accept the value of pipe descriptor
++
++Thread::Thread(char *threadName, int pDes, bool _has_dynamic_name /*=false*/) {
++    has_dynamic_name = _has_dynamic_name;
++    name = threadName;
++    stackTop = NULL;
++    stack = NULL;
++    status = JUST_CREATED;
++    for (int i = 0; i < MachineStateSize; i++) {
++        machineState[i] = NULL;  // not strictly necessary, since
++                                 // new thread ignores contents
++                                 // of machine registers
++    }
++    space = NULL;
++    priority = rand() % 10 + 1;
++    //cout<<"Created thread:"<<name<<" with priority:"<<priority<<endl;
++    pipeDesNum = pDes;
++    //cout<<"Pipe descriptor of thread:"<<name<<" is :"<<pipeDesNum<<endl;
++}
++
+ //----------------------------------------------------------------------
+ // Thread::~Thread
+ // 	De-allocate a thread.
+diff --git a/nachos-project-master/code/threads/thread.h b/nachos-project-master/code/threads/thread.h
+index 1a90fe8..d761f63 100755
+--- a/nachos-project-master/code/threads/thread.h
++++ b/nachos-project-master/code/threads/thread.h
+@@ -84,6 +84,10 @@ class Thread {
+    public:
+     Thread(char *debugName,
+            bool _has_dynamic_name = false, char* position = "Single", char* fileName = "temp");  // initialize a Thread
++	
++    // Overloading the constructor to accept the piep descriptor    
++    Thread(char *debugName, int pDes,
++           bool _has_dynamic_name = false);  // initialize a Thread
+     ~Thread();                               // deallocate a Thread
+                                              // NOTE -- thread being deleted
+                                              // must not be running when delete
+@@ -93,8 +97,9 @@ class Thread {
+     int parrentID;
+     int exitStatus;
+     int priority;
+-    char* position;
+-    char* fileName_p;
++    int pipeDesNum;
++    char* position = "Single";
++    char* fileName_p = "temp";
+     int fileDes;
+     void FreeSpace() {
+         if (space != 0) delete space;
+diff --git a/nachos-project-master/code/userprog/addrspace.cc b/nachos-project-master/code/userprog/addrspace.cc
+index 0002d39..5ee9977 100755
+--- a/nachos-project-master/code/userprog/addrspace.cc
++++ b/nachos-project-master/code/userprog/addrspace.cc
+@@ -19,7 +19,7 @@
+ #include "main.h"
+ #include "addrspace.h"
+ #include "machine.h"
+-#include "noff.h"
++//#include "noff.h"
+ #include "synch.h"
+ 
+ //----------------------------------------------------------------------
+@@ -86,8 +86,12 @@ AddrSpace::AddrSpace() {
+ AddrSpace::~AddrSpace() {
+     int i;
+     for (i = 0; i < numPages; i++) {
+-        kernel->gPhysPageBitMap->Clear(pageTable[i].physicalPage);
++	    if(pageTable[i].valid == TRUE){
++        	kernel->gPhysPageBitMap->Clear(pageTable[i].physicalPage);
++	    }
+     }
++    delete executable;	// Closing the opened executable when the AddrSpace
++				// itself is getting destroyed
+     delete[] pageTable;
+ }
+ 
+@@ -102,7 +106,7 @@ AddrSpace::~AddrSpace() {
+ //----------------------------------------------------------------------
+ 
+ AddrSpace::AddrSpace(char *fileName) {
+-    OpenFile *executable = kernel->fileSystem->Open(fileName);
++    executable = kernel->fileSystem->Open(fileName);
+     NoffHeader noffH;
+     unsigned int i, size, j, offset;
+     unsigned int numCodePage,
+@@ -136,34 +140,36 @@ AddrSpace::AddrSpace(char *fileName) {
+ 
+     // Check the available memory enough to load new process
+     // debug
+-    if (numPages > kernel->gPhysPageBitMap->NumClear()) {
++    /*if (numPages > kernel->gPhysPageBitMap->NumClear()) {
+         DEBUG(dbgAddr, "Not enough free space");
+         numPages = 0;
+         delete executable;
+         kernel->addrLock->V();
+         return;
+-    }
++    }*/
+     DEBUG(dbgAddr, "Initializing address space: " << numPages << ", " << size);
+     // first, set up the translation
+     pageTable = new TranslationEntry[numPages];
+     for (i = 0; i < numPages; i++) {
+-        pageTable[i].virtualPage = i;  // for now, virtual page # = phys page #
+-        pageTable[i].physicalPage = kernel->gPhysPageBitMap->FindAndSet();
++        pageTable[i].virtualPage = i;  // for now, virtual page # = phys page #        
++	pageTable[i].physicalPage = -1;	// Initilaizing with -1 indicating this virtual page number - i has no mapping with any physical page
+         // cerr << pageTable[i].physicalPage << endl;
+-        pageTable[i].valid = TRUE;
++        pageTable[i].valid = FALSE;	// Initially invalidating the mapping
++					// so that when we are trying to find the
++					// translation we get a page fault and then
++					// we try to load the page according to the
++	// virtual address that caused the fault
+         pageTable[i].use = FALSE;
+         pageTable[i].dirty = FALSE;
+         pageTable[i].readOnly = FALSE;  // if the code segment was entirely on
+         // a separate page, we could set its
+         // pages to be read-only
+         // xóa các trang này trên memory
+-        bzero(&(kernel->machine
+-                    ->mainMemory[pageTable[i].physicalPage * PageSize]),
+-              PageSize);
++        //bzero(&(kernel->machine->mainMemory[pageTable[i].physicalPage * PageSize]), PageSize);
+         DEBUG(dbgAddr, "phyPage " << pageTable[i].physicalPage);
+     }
+ 
+-    if (noffH.code.size > 0) {
++/*    if (noffH.code.size > 0) {
+         for (i = 0; i < numPages; i++)
+             executable->ReadAt(
+                 &(kernel->machine->mainMemory[noffH.code.virtualAddr]) +
+@@ -178,12 +184,50 @@ AddrSpace::AddrSpace(char *fileName) {
+                     (pageTable[i].physicalPage * PageSize),
+                 PageSize, noffH.initData.inFileAddr + (i * PageSize));
+     }
++    */
+ 
+     kernel->addrLock->V();
+-    delete executable;
++    exeFileName = fileName;	// Storing the executable file name
++    noffHeader = noffH;		// Storing the generated Noff Header for
++				// the executable file
++    //executableFile = executable;	// Storing the opened executable for
++					// the sake of demand paging
++					// instead of reopening the file upon
++					// every demand for loading a new page
++    //delete executable;
+     return;
+ }
+ 
++// Function for loading a page when a page fault occurs
++void AddrSpace::LoadPage(int vaddr) {
++	//OpenFile* executable = executableFile;	// Using the already opened
++						// executable file instead of
++						// opening again
++	int vpn = vaddr / PageSize;	// Computing the virtual page number
++	int codeStart = noffHeader.code.virtualAddr / PageSize;	// Starting page number of the starting point of the code
++	int codeEnd = (noffHeader.code.virtualAddr + noffHeader.code.size - 1) / PageSize;		// Computing the number of the last page code segment
++	
++	int dataStart = noffHeader.initData.virtualAddr / PageSize;	// Starting page number of the data segment
++	int dataEnd = (noffHeader.initData.virtualAddr + noffHeader.initData.size - 1) / PageSize;	// Comput the number of the last page of data segment	
++	pageTable[vpn].physicalPage = kernel->gPhysPageBitMap->FindAndSet();	// Allocating the bit of the page now when loading the page acutally 
++	ASSERT(pageTable[vpn].physicalPage >= 0);	// Check if we actually found a free page
++	bzero(&(kernel->machine->mainMemory[pageTable[vpn].physicalPage * PageSize]), PageSize);	// In case there is any garbage content in the page, clearing it
++	if(vpn >= codeStart && vpn <= codeEnd){
++		cout<<"Loading Code segment:"<<endl;
++		executable->ReadAt(
++				&kernel->machine->mainMemory[(pageTable[vpn].physicalPage * PageSize)], 
++				PageSize, 
++				noffHeader.code.inFileAddr + ((vpn - codeStart) * PageSize));
++	}
++	else if(vpn >= dataStart && vpn <= dataEnd){
++		cout<<"Loading Data Segment:"<<endl;
++		executable->ReadAt(
++			&kernel->machine->mainMemory[(pageTable[vpn].physicalPage * PageSize)],
++			PageSize,
++			noffHeader.initData.inFileAddr + ((vpn - dataStart) * PageSize));
++	}
++	pageTable[vpn].valid = TRUE;
++}
+ //----------------------------------------------------------------------
+ // AddrSpace::Execute
+ // 	Run a user program using the current thread
+diff --git a/nachos-project-master/code/userprog/addrspace.h b/nachos-project-master/code/userprog/addrspace.h
+index eb40a1a..90254c7 100755
+--- a/nachos-project-master/code/userprog/addrspace.h
++++ b/nachos-project-master/code/userprog/addrspace.h
+@@ -15,6 +15,7 @@
+ 
+ #include "copyright.h"
+ #include "filesys.h"
++#include "noff.h"
+ 
+ #define UserStackSize 1024  // increase this as necessary!
+ 
+@@ -37,6 +38,12 @@ class AddrSpace {
+     // is 0 for Read, 1 for Write.
+     ExceptionType Translate(unsigned int vaddr, unsigned int *paddr, int mode);
+     // void InitRegisters();
++    void LoadPage(int vaddr);	// Function that loads a page upon receiving a
++				// page fault. Parameter of the function is
++				// vaddr -> the virtual address at which the
++				// page fault occured
++
++
+    private:
+     TranslationEntry *pageTable;  // Assume linear page table translation
+                                   // for now!
+@@ -45,6 +52,16 @@ class AddrSpace {
+ 
+     void InitRegisters();  // Initialize user-level CPU registers,
+                            // before jumping to user code
++    
++        char* exeFileName;		// Variable for storing the name of the 
++				// executable that is being run
++
++    NoffHeader noffHeader;	// A class attribute used for storing the 
++				// Noff Header that could be used for finding the
++				// offsets to check if we need to write the
++				// code segment or the data segment
++    OpenFile* executable;	// A variable holding the opened executable file
++				// and is closed in the destructor	
+ };
+ 
+ #endif  // ADDRSPACE_H
+diff --git a/nachos-project-master/code/userprog/exception.cc b/nachos-project-master/code/userprog/exception.cc
+index 125dd69..797f02e 100755
+--- a/nachos-project-master/code/userprog/exception.cc
++++ b/nachos-project-master/code/userprog/exception.cc
+@@ -150,6 +150,7 @@ void handle_SC_Add() {
+     DEBUG(dbgSys, "Add returning with " << result << "\n");
+     /* Prepare Result */
+     kernel->machine->WriteRegister(2, (int)result);
++    kernel->pipeDes->test_method();
+ 
+     return move_program_counter();
+ }
+@@ -159,6 +160,7 @@ void handle_SC_Abs() {
+                          //<< kernel->machine->ReadRegister(5) << "\n");
+ 
+     /* Process SysAdd Systemcall*/
++    //cout<<"Got the value:"<<(int)kernel->machine->ReadRegister(4)<<endl;
+     int result;
+     result = SysAbs(
+         /* int op */ (int)kernel->machine->ReadRegister(4));
+@@ -346,6 +348,75 @@ void handle_SC_Exec() {
+     return move_program_counter();
+ }
+ 
++// Handler for Pipe system call which internally calls for ksyscall.h
++void handle_SC_Pipe() {
++	int firstPtr = kernel->machine->ReadRegister(4);
++	int secondPtr = kernel->machine->ReadRegister(5);
++
++	int* parentPtr = (int*)stringUser2System(firstPtr, 4);
++	int* childPtr = (int*)stringUser2System(secondPtr, 4);
++
++	//*parentPtr = 4;
++	//*childPtr = 5;	// For now assigned randomly
++	
++	kernel->machine->WriteRegister(2, SysPipe(parentPtr, childPtr));
++	StringSys2User((char*)parentPtr, firstPtr, 4);
++	StringSys2User((char*)childPtr, secondPtr, 4);
++	return move_program_counter();
++}
++
++// Handler for handling the writing into pipe buffer
++void handle_SC_PipeRead() {
++	int desNum = kernel->machine->ReadRegister(4);
++	int bufAddr = kernel->machine->ReadRegister(5);
++	int nBytes = kernel->machine->ReadRegister(6);
++
++	char* buf = new char[nBytes];
++	int readRes = kernel->pipeDes->readDes(desNum, buf, nBytes);
++	buf[readRes] = '\0';
++/*	int value;
++memcpy(&value, buf, 4);
++cout << "Read int value from pipe: " << value << endl;  // prints 10 ✓
++cout << "Buf value:"<<buf<<endl;*/
++	StringSys2User(buf, bufAddr, nBytes+1);
++	return move_program_counter();
++}
++
++void handle_SC_ReadInt() {
++	int virtAddr;
++	virtAddr = kernel->machine->ReadRegister(4);
++
++	char* buf = stringUser2System(virtAddr);
++	int value;
++	memcpy(&value, buf, 4);
++	//cout<<"Returning int value:"<<value<<endl;
++	kernel->machine->WriteRegister(2, (int) value);
++	return move_program_counter();
++}
++
++
++// Handler for handling the writing into pipe buffer
++void handle_SC_PipeWrite() {
++	int desNum = kernel->machine->ReadRegister(4);
++	int bufAddr = kernel->machine->ReadRegister(5);
++	int nBytes = kernel->machine->ReadRegister(6);
++
++	char* buf = new char[nBytes];
++	for(int i = 0; i < nBytes; i++){
++		int byte;
++		kernel->machine->ReadMem(bufAddr + i, 1, &byte);
++		buf[i] = (char)byte;
++	}
++
++	// Checking if the correct reading is happening
++	int value;
++	memcpy(&value, buf, 4);
++	cout<<"Attempting to write:"<<value<<endl;
++	int writeRes = kernel->pipeDes->writeDes(desNum, buf, nBytes);	
++	//StringSys2User(buf, buffAddr, nBytes+1);
++	return move_program_counter();
++}
++
+ void handle_SC_ExecPipe() {
+ 	//cout<<"Entered handle_SC_ExecPipe"<<endl;
+ 	int virtAddr;
+@@ -374,6 +445,22 @@ void handle_SC_ExecPipe() {
+ 	return move_program_counter();
+ }
+ 
++void handle_SC_ExecP() {
++	int virtAddr;
++	virtAddr = kernel->machine->ReadRegister(4);
++	char* name; 
++	name = stringUser2System(virtAddr);
++	if(name == NULL){
++		DEBUG(dbgSys, "\n Not enough memory in System");
++                ASSERT(false);
++                kernel->machine->WriteRegister(2, -1);
++                return move_program_counter();
++	}
++	int pDes = kernel->machine->ReadRegister(5);
++	kernel->machine->WriteRegister(2, SysExecP(name, pDes));
++	return move_program_counter();
++}
++
+ /**
+  * @brief handle System Call Join
+  * @param id: thread id (get from R4)
+@@ -455,6 +542,11 @@ void handle_SC_GetPid() {
+     return move_program_counter();
+ }
+ 
++void handle_SC_GetPD() {
++	kernel->machine->WriteRegister(2, SysGetPD());
++	return move_program_counter();
++}
++
+ void ExceptionHandler(ExceptionType which) {
+     int type = kernel->machine->ReadRegister(2);
+ 
+@@ -466,6 +558,13 @@ void ExceptionHandler(ExceptionType which) {
+             DEBUG(dbgSys, "Switch to system mode\n");
+             break;
+         case PageFaultException:
++	    {
++		int faultingAddr = kernel->machine->ReadRegister(BadVAddrReg);
++		cout<<"=== Got a Page fault at the address:"<<faultingAddr<<endl;
++		kernel->currentThread->space->LoadPage(faultingAddr);
++		kernel->currentThread->space->RestoreState();
++		return;
++	    }
+         case ReadOnlyException:
+         case BusErrorException:
+         case AddressErrorException:
+@@ -482,8 +581,16 @@ void ExceptionHandler(ExceptionType which) {
+                     return handle_SC_Halt();
+                 case SC_Add:
+                     return handle_SC_Add();
++		case SC_Pipe:
++		    return handle_SC_Pipe();
++		case SC_PipeRead:
++		    return handle_SC_PipeRead();
++		case SC_PipeWrite:
++		    return handle_SC_PipeWrite();
+ 		case SC_Abs:
+ 		    return handle_SC_Abs();
++		case SC_ReadInt:
++		    return handle_SC_ReadInt();
+                 case SC_ReadNum:
+                     return handle_SC_ReadNum();
+                 case SC_PrintNum:
+@@ -514,7 +621,9 @@ void ExceptionHandler(ExceptionType which) {
+                     return handle_SC_Exec();
+ 		case SC_ExecPipe:
+ 		    return handle_SC_ExecPipe();
+-                case SC_Join:
++		case SC_ExecP:
++		    return handle_SC_ExecP();
++		case SC_Join:
+                     return handle_SC_Join();
+                 case SC_Exit:
+                     return handle_SC_Exit();
+@@ -528,6 +637,8 @@ void ExceptionHandler(ExceptionType which) {
+                     return handle_SC_GetPid();
+ 		case SC_Sleep2:
+ 		    return handle_SC_Sleep2();
++		case SC_GetPD:
++		    return handle_SC_GetPD();
+                 /**
+                  * Handle all not implemented syscalls
+                  * If you want to write a new handler for syscall:
+diff --git a/nachos-project-master/code/userprog/ksyscall.h b/nachos-project-master/code/userprog/ksyscall.h
+index dc11da0..303d8c2 100755
+--- a/nachos-project-master/code/userprog/ksyscall.h
++++ b/nachos-project-master/code/userprog/ksyscall.h
+@@ -20,7 +20,10 @@ void SysHalt() { kernel->interrupt->Halt(); }
+ 
+ int SysAdd(int op1, int op2) { return op1 + op2; }
+ 
+-int SysAbs(int op) { return op < 0 ? (-1 * op) : op; }
++int SysAbs(int op) { 
++	//cout<<"Got value :"<<op<<" in ksyscall.h"<<endl;
++	return op < 0 ? (-1 * op) : op; 
++}
+ 
+ int SysReadNum() {
+     readUntilBlank();
+@@ -226,6 +229,28 @@ int SysExecPipe(char* name, char* position, char* fileName) {
+ 	return kernel->pTab->ExecUpdate(name, position, fileName);
+ }
+ 
++int SysExecP(char* name, int pDes){
++	OpenFile* oFile = kernel->fileSystem->Open(name);
++	if(oFile == NULL){
++		DEBUG(dbgSys, "\nExec:: Can't open this file.");
++		return -1;
++	}
++	delete oFile;
++
++	return kernel->pTab->ExecUpdate(name, pDes);
++}
++
++int SysPipe(int* x, int* y){
++	int result = kernel->pipeDes->createDes(x, y, "pipe");
++	// If the result is -1 then it indicates that the creation of Pipe has been failed.
++	if(result == -1){
++		cout<<"Failed to create Pipe\n";
++		return -1;
++	}
++	return result;
++}
++	
++
+ int SysJoin(int id) { return kernel->pTab->JoinUpdate(id); }
+ 
+ int SysExit(int id) { return kernel->pTab->ExitUpdate(id); }
+@@ -268,4 +293,8 @@ int SysSignal(char* name) {
+ 
+ int SysGetPid() { return kernel->currentThread->processID; }
+ 
++int SysGetPD() {
++	return kernel->currentThread->pipeDesNum;
++}
++
+ #endif /* ! __USERPROG_KSYSCALL_H__ */
+diff --git a/nachos-project-master/code/userprog/syscall.h b/nachos-project-master/code/userprog/syscall.h
+index 70a1473..5cb2860 100755
+--- a/nachos-project-master/code/userprog/syscall.h
++++ b/nachos-project-master/code/userprog/syscall.h
+@@ -51,6 +51,12 @@
+ #define SC_Abs	  55
+ #define SC_ExecPipe 56
+ #define SC_Sleep2 57
++#define SC_Pipe 58
++#define SC_PipeRead 59
++#define SC_PipeWrite 60
++#define SC_ExecP 61
++#define SC_ReadInt 62
++#define SC_GetPD 63
+ 
+ #ifndef IN_ASM
+ 
+@@ -68,7 +74,9 @@
+ void Halt();
+ 
+ /*
+- * Add the two operants and return the result
++ 	ASSERT(numRead == numBytes);
++	return numWrite;
++}* Add the two operants and return the result
+  */
+ 
+ int Add(int op1, int op2);
+@@ -109,6 +117,8 @@ SpaceId Exec(char *exec_name);
+ 
+ SpaceId ExecPipe(char* exec_name, char* position, char* file_name);
+ 
++SpaceId ExecP(char* exec_name, int pDes);
++
+ /* Run the executable, stored in the Nachos file "argv[0]", with
+  * parameters stored in argv[1..argc-1] and return the
+  * address space identifier
+@@ -193,6 +203,16 @@ int Signal(char *name);
+ 
+ void Sleep2(int time);
+ 
++void Pipe(int* x, int* y);	// A system call that requests for two new pipe descriptors - one for parent and one for child
++
++int pipeRead(int des, char* buf, int nBytes);	// A system call that can be used for reading from the buffer associated with a pipe descriptor
++
++int pipeWrite(int des, char* buf, int nBytes); 	// A system call that can be used for writing into the buffer associated with a pipe descriptor
++
++int GetPD();		// A system call that can be used for getting the Pipe Descriptor of the thread
++
++int ReadInt(char* buf);
++
+ /* User-level thread operations: Fork and Yield.  To allow multiple
+  * threads to run within a user program.
+  *
