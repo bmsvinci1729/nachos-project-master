@@ -1,5 +1,6 @@
 *.o
 *.coff
+*.x86Linux./bu
 code/build.linux/DISK_0
 code/build.linux/nachos
 coff2noff/coff2noff.x86Linux
@@ -14,3 +15,4 @@ patch/
 LAB4_LAB5_PRIVATE_NOTES.md
 DISK_0
 usr/
+code/build.linux/Makefile.dep

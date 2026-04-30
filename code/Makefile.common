@@ -1,0 +1,1 @@
+THREAD_O = main.o scheduler.o synch.o thread.o ptable.o pcb.o stable.o sem.o

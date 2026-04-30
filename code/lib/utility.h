@@ -8,6 +8,13 @@
 #ifndef UTILITY_H
 #define UTILITY_H
 
+#include <iostream>
+#include <string>
+#include <cstring>
+
+#define min(a, b) (((a) < (b)) ? (a) : (b))
+#define max(a, b) (((a) > (b)) ? (a) : (b))
+
 #include "copyright.h"
 
 // Miscellaneous useful routines
@@ -17,8 +24,16 @@
 #define FALSE false
 // #define bool int		// necessary on the Mac?
 
+// #define min(a, b) (((a) < (b)) ? (a) : (b))
+// #define max(a, b) (((a) > (b)) ? (a) : (b))
+
+#ifndef min
 #define min(a, b) (((a) < (b)) ? (a) : (b))
+#endif
+
+#ifndef max
 #define max(a, b) (((a) > (b)) ? (a) : (b))
+#endif
 
 // Divide and either round up or down
 #define divRoundDown(n, s) ((n) / (s))

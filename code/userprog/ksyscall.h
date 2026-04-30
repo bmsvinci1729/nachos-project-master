@@ -15,6 +15,7 @@
 #include "synchconsole.h"
 #include "ksyscallhelper.h"
 #include <stdlib.h>
+#include <cstdint>
 #include <cstring>
 
 void SysHalt() { kernel->interrupt->Halt(); }
